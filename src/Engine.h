@@ -28,8 +28,6 @@ static const UINT8 chainSize = 2;
 
 class Engine
 {
-public:
-
 protected:
 	// constructor protegido SINGLETON
 	Engine(HINSTANCE hInstance);
@@ -78,6 +76,8 @@ protected:
 
 	// Command List para renderizar
 	void recordCommandList();
+
+	void update();
 
 public:
 	static Engine* getEngine();

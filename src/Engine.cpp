@@ -1,6 +1,11 @@
 #include <cassert>
 #include "Engine.h"
 
+
+// Para los colores
+#include <DirectXColors.h>
+using namespace DirectX;
+
 Engine* Engine::engine = nullptr;
 Engine* Engine::getEngine()
 {
@@ -83,6 +88,13 @@ bool Engine::initMainWindow()
 bool Engine::initDirectX()
 {
 	// iniciamos el DirectX 12
+	createDevice();
+	createQueues();
+	createFence();
+
+	createSwapchain(engineHwnd, clientWidth, clientHeight);
+	createRenderTargets();
+
 	return true;
 }
 
@@ -108,9 +120,22 @@ int Engine::run()
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 		}
+		else
+		{
+			update();
+		}
 	}
 
 	return (int)msg.wParam;
+}
+
+void Engine::update()
+{
+	recordCommandList();
+	ID3D12CommandList* ppCommandLists[] = { commandList.Get() };
+	commandQueue->ExecuteCommandLists(1, ppCommandLists);
+	swapchain->Present(1, 0);
+	flushAndWait();
 }
 
 void Engine::createDevice()
@@ -260,8 +285,8 @@ void Engine::recordCommandList()
 
 	Resource::resourceBarrier(commandList.Get(), renderTargets[backFrameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-	const FLOAT ClearValue[] = { 1.0f, 0.0f, 0.0f, 1.0f };
-	commandList->ClearRenderTargetView(renderTargetDescriptor, ClearValue, 0, nullptr);
+	// comando para pintar la pantalla
+	commandList->ClearRenderTargetView(renderTargetDescriptor, Colors::LightSteelBlue, 0, nullptr);
 
 	Resource::resourceBarrier(commandList.Get(), renderTargets[backFrameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 
