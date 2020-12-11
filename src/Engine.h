@@ -21,6 +21,9 @@
 #include <wrl.h>
 using namespace Microsoft::WRL;
 
+// Propio del Engine
+#include "Resource.h"
+
 static const UINT8 chainSize = 2;
 
 class Engine
@@ -48,25 +51,33 @@ protected:
 
 	// Dispositivos
 	ComPtr<IDXGIFactory4> factory;				// Constructor de Interfaces
-	ComPtr<ID3D12Device> device;				// Placa de video
+	ComPtr<ID3D12Device> device;				// Dispositivo (virtual)
 
 	void createDevice();
 
 	// Colas
-	ComPtr<ID3D12CommandQueue> CommandQueue;
-	ComPtr<ID3D12CommandAllocator> CommandAllocator;
-	ComPtr<ID3D12GraphicsCommandList> CommandList;
+	ComPtr<ID3D12CommandQueue> commandQueue;
+	ComPtr<ID3D12CommandAllocator> commandAllocator;
+	ComPtr<ID3D12GraphicsCommandList> commandList;
+
+	void createQueues();
 
 	// Fences
-	ComPtr<ID3D12Fence> Fence;
-	HANDLE FenceEvent;
-	UINT64 FenceValue;
+	ComPtr<ID3D12Fence> fence;
+	HANDLE fenceEvent;
+	UINT64 fenceValue;
+	void createFence();
+	void flushAndWait();
 
 	// Swapchain
-	ComPtr<IDXGISwapChain3> Swapchain;
-	ComPtr<ID3D12DescriptorHeap> RenderTargetViewHeap;
-	ComPtr<ID3D12Resource> RenderTargets[chainSize];
+	ComPtr<IDXGISwapChain3> swapchain;
+	ComPtr<ID3D12DescriptorHeap> renderTargetViewHeap;
+	ComPtr<ID3D12Resource> renderTargets[chainSize];
+	void createSwapchain(HWND hWnd, UINT Width, UINT Height);
+	void createRenderTargets();
 
+	// Command List para renderizar
+	void recordCommandList();
 
 public:
 	static Engine* getEngine();

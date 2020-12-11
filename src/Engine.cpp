@@ -149,3 +149,121 @@ void Engine::createDevice()
 	// Ahora si creamos el Device y lo guardamos en el puntero inteligente
 	D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
 }
+
+void Engine::createQueues()
+{
+	// preparamos y creamos la cola de comandos
+	D3D12_COMMAND_QUEUE_DESC CommandQueueDesc{};
+	CommandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+	CommandQueueDesc.NodeMask = 0;
+	CommandQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+	CommandQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+	device->CreateCommandQueue(&CommandQueueDesc, IID_PPV_ARGS(&commandQueue));
+
+	// creamos el allocator
+	device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator));
+
+	// creamos y cerramos la lista de comandos
+	device->CreateCommandList(
+		0,
+		D3D12_COMMAND_LIST_TYPE_DIRECT,
+		commandAllocator.Get(),
+		nullptr, // estado inicial del pipeline
+		IID_PPV_ARGS(&commandList)
+	);
+	commandList->Close();
+}
+
+void Engine::createFence()
+{
+	fenceValue = 0;
+	device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+	fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+}
+
+void Engine::flushAndWait()
+{
+	const UINT64 FenceValueToSignal = fenceValue;
+	commandQueue->Signal(fence.Get(), FenceValueToSignal);
+
+	++fenceValue;
+
+	if (fence->GetCompletedValue() < FenceValueToSignal)
+	{
+		fence->SetEventOnCompletion(FenceValueToSignal, fenceEvent);
+		WaitForSingleObject(fenceEvent, INFINITE);
+	}
+}
+
+void Engine::createSwapchain(HWND hWnd, UINT Width, UINT Height)
+{
+	DXGI_SWAP_CHAIN_DESC1 swapchainDesc{};
+	swapchainDesc.BufferCount = 2;
+	swapchainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	swapchainDesc.Width = Width;
+	swapchainDesc.Height = Height;
+	swapchainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	swapchainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	swapchainDesc.SampleDesc.Count = 1;
+
+	// Creamos la SwapChain
+	ComPtr<IDXGISwapChain1> swapchainTemp;
+	factory->CreateSwapChainForHwnd(
+		commandQueue.Get(),
+		hWnd,
+		&swapchainDesc,
+		nullptr,
+		nullptr,
+		&swapchainTemp
+	);
+
+	swapchainTemp.As(&swapchain);
+}
+
+void Engine::createRenderTargets()
+{
+	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
+	descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	descriptorHeapDesc.NodeMask = 0;
+	descriptorHeapDesc.NumDescriptors = chainSize;
+	descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+
+	device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&renderTargetViewHeap));
+
+	for (UINT FrameIndex = 0; FrameIndex < chainSize; ++FrameIndex)
+	{
+		swapchain->GetBuffer(FrameIndex, IID_PPV_ARGS(&renderTargets[FrameIndex]));
+
+		D3D12_RENDER_TARGET_VIEW_DESC RTDesc{};
+		RTDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+		RTDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		RTDesc.Texture2D.MipSlice = 0;
+		RTDesc.Texture2D.PlaneSlice = 0;
+
+		D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor = renderTargetViewHeap->GetCPUDescriptorHandleForHeapStart();
+		DestDescriptor.ptr += ((SIZE_T)FrameIndex) * device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+		device->CreateRenderTargetView(renderTargets[FrameIndex].Get(), &RTDesc, DestDescriptor);
+	}
+}
+
+void Engine::recordCommandList()
+{
+	const UINT backFrameIndex = swapchain->GetCurrentBackBufferIndex();
+
+	// para borrar la pantalla no necesitamos un pipeline
+	commandAllocator->Reset();
+	commandList->Reset(commandAllocator.Get(), nullptr);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE renderTargetDescriptor = renderTargetViewHeap->GetCPUDescriptorHandleForHeapStart();
+	renderTargetDescriptor.ptr += ((SIZE_T)backFrameIndex) * device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+	Resource::resourceBarrier(commandList.Get(), renderTargets[backFrameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+	const FLOAT ClearValue[] = { 1.0f, 0.0f, 0.0f, 1.0f };
+	commandList->ClearRenderTargetView(renderTargetDescriptor, ClearValue, 0, nullptr);
+
+	Resource::resourceBarrier(commandList.Get(), renderTargets[backFrameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+
+	commandList->Close();
+}
